@@ -1,6 +1,7 @@
 pub mod platform;
 
 mod instruction;
+mod tests;
 mod types;
 
 use self::{
@@ -9,8 +10,7 @@ use self::{
 };
 
 use platform::*;
-
-struct Emulator {
+pub struct Emulator<PLATFORM: Platform> {
     // Internal State
     program_counter: u16,
     stack_pointer: usize,
@@ -26,40 +26,90 @@ struct Emulator {
     memory: Memory,
 
     // Platform support
-    platform: dyn Platform,
+    platform: PLATFORM,
 }
 
-type Memory = [u8; 4096];
-type RegisterBank = [u8; 16];
-type Stack = [u16; 16];
+const MEMORY_SIZE: usize = 4096;
+type Memory = [u8; MEMORY_SIZE];
 
-impl Emulator {
-    // pub fn new( platform: dyn platform::Platform) -> Self{
-    //     Emulator { program_counter: (), stack_pointer: (), stack: (), i_register: (), v_registers: (), sound_timer: (), delay_timer: (), memory: (), platform }
-    // }
+const REGISTER_BANK_SIZE: usize = 16;
+type RegisterBank = [u8; REGISTER_BANK_SIZE];
 
-    fn run(&mut self) {
-        loop {
-            // Fetch
-            let pc = self.program_counter as usize;
-            let instruction_bytes: &[u8; 2] = &self.memory[pc..pc + 2].try_into().unwrap();
+const STACK_SIZE: usize = 16;
+type Stack = [u16; STACK_SIZE];
 
-            self.increment_program_counter();
+const DATA_START_ADDRESS: u16 = 0x200;
 
-            // Decode
-            let instruction = instruction::parser::parse_instruction(instruction_bytes).unwrap();
+impl<PLATFORM: Platform> Emulator<PLATFORM> {
+    pub fn new(platform: PLATFORM) -> Self {
+        let program_counter = DATA_START_ADDRESS;
+        let stack_pointer = 0;
+        let i_register = 0;
+        let sound_timer = 0;
+        let delay_timer = 0;
+        let memory: Memory = [0; MEMORY_SIZE];
+        let v_registers: RegisterBank = [0; REGISTER_BANK_SIZE];
+        let stack: Stack = [0; STACK_SIZE];
 
-            // Execute
-            self.execute_instruction(instruction);
+        Emulator {
+            program_counter,
+            stack_pointer,
+            i_register,
+            sound_timer,
+            delay_timer,
+            platform,
+            v_registers,
+            memory,
+            stack,
         }
     }
 
-    fn execute_instruction(&mut self, instruction: Instruction) {
+    async fn start_program(&mut self) {
+        use futures::select;
+        use futures::FutureExt;
+        let instruction_frequency = core::time::Duration::from_secs(1).div_f32(500f32);
+        let mut instruction_interval = async_io::Timer::interval(instruction_frequency).fuse();
+
+        let timer_frequency = core::time::Duration::from_secs(1).div_f32(60f32);
+        let mut timer_interval = async_io::Timer::interval(timer_frequency).fuse();
+
+        select! {
+            _ = timer_interval => self.handle_timers().await,
+            _ = instruction_interval => self.run_instruction_loop().await,
+        }
+    }
+
+    async fn handle_timers(&mut self) {
+        if self.delay_timer > 0 {
+            self.delay_timer -= 1;
+        }
+        if self.sound_timer > 0 {
+            self.delay_timer -= 1;
+        }
+
+        self.handler_buzzer_state().await;
+    }
+
+    async fn run_instruction_loop(&mut self) {
+        // Fetch
+        let pc = self.program_counter as usize;
+
+        self.increment_program_counter();
+
+        let instruction_bytes = &self.memory[pc..pc + 2];
+        // Decode
+        let instruction = instruction::parser::parse_instruction(instruction_bytes).unwrap();
+
+        // Execute
+        self.execute_instruction(instruction).await;
+    }
+
+    async fn execute_instruction(&mut self, instruction: Instruction) {
         match instruction {
             Instruction::System { address } | Instruction::Jump { address } => {
                 self.set_program_counter(address.into());
             }
-            Instruction::ClearDisplay => self.platform.clear_display(),
+            Instruction::ClearDisplay => self.platform.clear_display().await,
             Instruction::ReturnFromSubroutine => {
                 self.set_program_counter(self.stack[self.stack_pointer]);
                 self.stack_pointer -= 1;
@@ -225,7 +275,7 @@ impl Emulator {
                 let register_value: u8 = self.read_v_register(read_key_number_from).into();
                 let expected_key_number = KeypadNumber(register_value.into());
 
-                if let KeyState::On = self.platform.read_keypress_state(expected_key_number) {
+                if let KeyState::On = self.platform.read_keypress_state(expected_key_number).await {
                     self.increment_program_counter();
                 }
             }
@@ -235,7 +285,8 @@ impl Emulator {
                 let register_value: u8 = self.read_v_register(read_key_number_from).into();
                 let expected_key_number = KeypadNumber(register_value.into());
 
-                if let KeyState::Off = self.platform.read_keypress_state(expected_key_number) {
+                if let KeyState::Off = self.platform.read_keypress_state(expected_key_number).await
+                {
                     self.increment_program_counter();
                 }
             }
@@ -246,7 +297,7 @@ impl Emulator {
             Instruction::LoadIntoSoundTimer { source } => {
                 let register_value: u8 = self.read_v_register(source).into();
                 self.sound_timer = register_value;
-                self.handler_buzzer_state();
+                self.handler_buzzer_state().await;
             }
             Instruction::AddValueToIRegister { source } => {
                 let register_value: u8 = self.read_v_register(source).into();
@@ -295,7 +346,7 @@ impl Emulator {
                 self.set_v_register(destination, value);
             }
             Instruction::AwaitKeyPressAndLoadIntoRegister { destination } => {
-                let key_state = self.platform.block_for_any_keypress();
+                let key_state = self.platform.block_for_any_keypress().await;
                 // TODO Timers should still tick, use async or decrement PC and loop again
 
                 match key_state {
@@ -337,8 +388,8 @@ impl Emulator {
                 let starting_y_value: u8 = self.read_v_register(read_y_axis_from).into();
 
                 // Wrap Starting position
-                let display_width = self.platform.get_display_width();
-                let display_height = self.platform.get_display_width();
+                let display_width = self.platform.get_display_width().await;
+                let display_height = self.platform.get_display_width().await;
                 let starting_x_value = starting_x_value % display_width;
                 let starting_y_value = starting_y_value % display_height;
 
@@ -375,13 +426,13 @@ impl Emulator {
                             column: starting_x_value,
                             row: starting_y_value,
                         };
-                        let current_state = self.platform.get_pixel(pixel);
+                        let current_state = self.platform.get_pixel(pixel).await;
 
                         if pixel_state == current_state {
-                            self.platform.set_pixel(pixel, PixelState::Off);
+                            self.platform.set_pixel(pixel, PixelState::Off).await;
                             self.v_registers[0xf] = 1;
                         } else {
-                            self.platform.set_pixel(pixel, PixelState::On);
+                            self.platform.set_pixel(pixel, PixelState::On).await;
                         }
                         // Needed?
                         column += 1;
@@ -459,11 +510,11 @@ impl Emulator {
         self.v_registers[index] = raw_value;
     }
 
-    fn handler_buzzer_state(&self){
-        if self.sound_timer > 0{
-            self.platform.set_buzzer(BuzzerState::On);
-        }else{
-            self.platform.set_buzzer(BuzzerState::Off);
+    async fn handler_buzzer_state(&mut self) {
+        if self.sound_timer > 0 {
+            self.platform.set_buzzer(BuzzerState::On).await;
+        } else {
+            self.platform.set_buzzer(BuzzerState::Off).await;
         }
     }
 }
