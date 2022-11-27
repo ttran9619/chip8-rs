@@ -1,4 +1,5 @@
-mod parser;
+pub mod parser;
+
 mod tests;
 
 use super::types::{EightBitValue, FourBitValue, MemoryAddress, RegisterNumber, TwelveBitValue};
