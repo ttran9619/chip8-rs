@@ -1,15 +1,12 @@
-
-
-
-
 #[cfg(test)]
-mod test{
+mod test {
     use super::super::*;
+    use include_dir::{include_dir, Dir};
     pub struct TestPlatform {
         display: Display,
         buzzer: BuzzerState,
         keypad: Keypad,
-        waiters: Vec<futures::channel::oneshot::Sender<KeyState>>
+        waiters: Vec<futures::channel::oneshot::Sender<KeyState>>,
     }
 
     use std::u8;
@@ -25,7 +22,6 @@ mod test{
     type Display = [Row; HEIGHT as usize];
 
     type Keypad = [KeyState; KEYPAD_COUNT as usize];
-
 
     #[async_trait::async_trait]
     impl Platform for TestPlatform {
@@ -65,39 +61,48 @@ mod test{
         }
     }
 
-    impl TestPlatform{
-        pub fn new() -> Self{
-            TestPlatform{
-                 display: [[PixelState::Off; WIDTH as usize]; HEIGHT as usize],
-                 buzzer: BuzzerState::Off,
-                 keypad: [KeyState::Off; KEYPAD_COUNT as usize],
-                 waiters: vec!()
+    impl TestPlatform {
+        pub fn new() -> Self {
+            TestPlatform {
+                display: [[PixelState::Off; WIDTH as usize]; HEIGHT as usize],
+                buzzer: BuzzerState::Off,
+                keypad: [KeyState::Off; KEYPAD_COUNT as usize],
+                waiters: vec![],
             }
         }
 
-        pub fn set_keypress(&mut self, key: KeypadNumber, key_state: KeyState){
+        pub fn set_keypress(&mut self, key: KeypadNumber, key_state: KeyState) {
             let index: usize = key.into();
             self.keypad[index] = key_state;
 
-            for sender in self.waiters.drain(..){
+            for sender in self.waiters.drain(..) {
                 sender.send(key_state).unwrap();
             }
             assert!(self.waiters.len() == 0);
         }
 
-        pub fn get_buzzer(& self) -> BuzzerState{
+        pub fn get_buzzer(&self) -> BuzzerState {
             self.buzzer
         }
     }
 
-    fn new_test_emulator() -> Emulator<TestPlatform>{
+    static TEST_BINARY_DIR: Dir<'_> =
+        include_dir!("$CARGO_MANIFEST_DIR/src/emulator/test-dependencies/chip8-test-suite/bin");
+
+    fn new_test_emulator() -> Emulator<TestPlatform> {
         Emulator::new(TestPlatform::new())
     }
 
     #[tokio::test]
-    async fn my_test() {
-        let mut emulator = new_test_emulator();
-        emulator.start_program().await;
+    async fn chip8_test_suite() {
+        for f in TEST_BINARY_DIR.files() {
+            if f.path().extension().unwrap() != "ch8" {
+                continue;
+            }
+            let binary_data = f.contents();
+            let mut emulator = new_test_emulator();
+            emulator.load_into_memory(binary_data).await;
+            emulator.start_program().await;
+        }
     }
 }
-

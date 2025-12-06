@@ -6,7 +6,7 @@ mod types;
 
 use self::{
     instruction::Instruction,
-    types::{EightBitValue, FourBitValue, MemoryAddress, RegisterNumber},
+    types::{EightBitValue, MemoryAddress, RegisterNumber},
 };
 
 use platform::*;
@@ -64,6 +64,12 @@ impl<PLATFORM: Platform> Emulator<PLATFORM> {
         }
     }
 
+    async fn load_into_memory(&mut self, data: &[u8]) {
+        let destination = &mut self.memory[0..data.len()];
+        // let mut destination = memory[DATA_START_ADDRESS as usize; data.len()];
+        destination.copy_from_slice(&data);
+    }
+
     async fn start_program(&mut self) {
         use futures::select;
         use futures::FutureExt;
@@ -96,7 +102,7 @@ impl<PLATFORM: Platform> Emulator<PLATFORM> {
 
         self.increment_program_counter();
 
-        let instruction_bytes = &self.memory[pc..pc + 2];
+        let instruction_bytes: &[u8; 2] = &self.memory[pc..pc + 2].try_into().unwrap();
         // Decode
         let instruction = instruction::parser::parse_instruction(instruction_bytes).unwrap();
 
