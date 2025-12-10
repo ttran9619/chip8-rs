@@ -1,6 +1,5 @@
 #[cfg(test)]
 mod test {
-    use super::super::*;
     use include_dir::{include_dir, Dir};
     pub struct TestPlatform {
         display: Display,
@@ -10,8 +9,6 @@ mod test {
     }
 
     use std::u8;
-
-    use crate::emulator;
 
     use super::super::platform::*;
     use super::super::Emulator;
