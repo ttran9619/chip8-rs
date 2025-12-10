@@ -1,0 +1,3 @@
+[submodule "src/emulator/test-dependencies/chip8-test-suite"]
+	path = src/emulator/test-dependencies/chip8-test-suite
+	url = https://github.com/Timendus/chip8-test-suite.git
