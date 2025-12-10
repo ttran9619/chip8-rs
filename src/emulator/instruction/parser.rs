@@ -8,10 +8,11 @@ use crate::emulator::types::{
     EightBitValue, FourBitValue, MemoryAddress, RegisterNumber, TwelveBitValue,
 };
 
+use nom::Parser;
 use nom::{
     bits,
     branch::alt,
-    sequence::{delimited, pair, preceded, terminated, tuple},
+    sequence::{delimited, pair, preceded, terminated},
     IResult,
 };
 
@@ -21,16 +22,16 @@ pub fn instruction(input: &[u8; 2]) -> IResult<&[u8], Instruction> {
         opcode_9, opcode_a, opcode_b, opcode_c, opcode_d, opcode_e, opcode_f,
     ));
 
-    bits::bits(opcode_parsers)(input)
+    bits::bits(opcode_parsers).parse(input)
 }
 
 fn opcode_0(input: (&[u8], usize)) -> IResult<(&[u8], usize), Instruction> {
     let clear_display = |input| {
-        let (input, _) = bits::complete::tag(0x0E0, 12usize)(input)?;
+        let (input, _) = bits::complete::tag(0x0E0, 12usize).parse(input)?;
         Ok((input, Instruction::ClearDisplay))
     };
     let return_from_subroutine = |input| {
-        let (input, _) = bits::complete::tag(0x0EE, 12usize)(input)?;
+        let (input, _) = bits::complete::tag(0x0EE, 12usize).parse(input)?;
         Ok((input, Instruction::ReturnFromSubroutine))
     };
     let system = |input| {
@@ -39,19 +40,19 @@ fn opcode_0(input: (&[u8], usize)) -> IResult<(&[u8], usize), Instruction> {
     };
 
     let sub_opcodes = alt((clear_display, return_from_subroutine, system));
-    preceded(match_opcode::<0>, sub_opcodes)(input)
+    preceded(match_opcode::<0>, sub_opcodes).parse(input)
 }
 fn opcode_1(input: (&[u8], usize)) -> IResult<(&[u8], usize), Instruction> {
-    let (input, address) = preceded(match_opcode::<1>, memory_address)(input)?;
+    let (input, address) = preceded(match_opcode::<1>, memory_address).parse(input)?;
     Ok((input, Instruction::Jump { address }))
 }
 fn opcode_2(input: (&[u8], usize)) -> IResult<(&[u8], usize), Instruction> {
-    let (input, address) = preceded(match_opcode::<2>, memory_address)(input)?;
+    let (input, address) = preceded(match_opcode::<2>, memory_address).parse(input)?;
     Ok((input, Instruction::Call { address }))
 }
 fn opcode_3(input: (&[u8], usize)) -> IResult<(&[u8], usize), Instruction> {
     let data = pair(register_number, eight_bit_value);
-    let (input, (read_value_from, immediate)) = preceded(match_opcode::<3>, data)(input)?;
+    let (input, (read_value_from, immediate)) = preceded(match_opcode::<3>, data).parse(input)?;
 
     Ok((
         input,
@@ -63,7 +64,7 @@ fn opcode_3(input: (&[u8], usize)) -> IResult<(&[u8], usize), Instruction> {
 }
 fn opcode_4(input: (&[u8], usize)) -> IResult<(&[u8], usize), Instruction> {
     let data = pair(register_number, eight_bit_value);
-    let (input, (read_value_from, immediate)) = preceded(match_opcode::<4>, data)(input)?;
+    let (input, (read_value_from, immediate)) = preceded(match_opcode::<4>, data).parse(input)?;
 
     Ok((
         input,
@@ -75,7 +76,7 @@ fn opcode_4(input: (&[u8], usize)) -> IResult<(&[u8], usize), Instruction> {
 }
 fn opcode_5(input: (&[u8], usize)) -> IResult<(&[u8], usize), Instruction> {
     let data = pair(register_number, register_number);
-    let (input, (lhs, rhs)) = delimited(match_opcode::<5>, data, match_nibble::<0>)(input)?;
+    let (input, (lhs, rhs)) = delimited(match_opcode::<5>, data, match_nibble::<0>).parse(input)?;
 
     Ok((
         input,
@@ -84,7 +85,7 @@ fn opcode_5(input: (&[u8], usize)) -> IResult<(&[u8], usize), Instruction> {
 }
 fn opcode_6(input: (&[u8], usize)) -> IResult<(&[u8], usize), Instruction> {
     let data = pair(register_number, eight_bit_value);
-    let (input, (destination, immediate)) = preceded(match_opcode::<6>, data)(input)?;
+    let (input, (destination, immediate)) = preceded(match_opcode::<6>, data).parse(input)?;
 
     Ok((
         input,
@@ -96,7 +97,7 @@ fn opcode_6(input: (&[u8], usize)) -> IResult<(&[u8], usize), Instruction> {
 }
 fn opcode_7(input: (&[u8], usize)) -> IResult<(&[u8], usize), Instruction> {
     let data = pair(register_number, eight_bit_value);
-    let (input, (destination, immediate)) = preceded(match_opcode::<7>, data)(input)?;
+    let (input, (destination, immediate)) = preceded(match_opcode::<7>, data).parse(input)?;
 
     Ok((
         input,
@@ -111,7 +112,7 @@ fn opcode_8(input: (&[u8], usize)) -> IResult<(&[u8], usize), Instruction> {
         input: (&[u8], usize),
     ) -> IResult<(&[u8], usize), (RegisterNumber, RegisterNumber)> {
         let data = pair(register_number, register_number);
-        terminated(data, match_nibble::<VALUE>)(input)
+        terminated(data, match_nibble::<VALUE>).parse(input)
     }
     let copy = |input| {
         let (input, (destination, source)) = sub_opcode::<0>(input)?;
@@ -215,11 +216,11 @@ fn opcode_8(input: (&[u8], usize)) -> IResult<(&[u8], usize), Instruction> {
         subtract_source_from_destination,
         shift_left,
     ));
-    preceded(match_opcode::<8>, sub_opcodes)(input)
+    preceded(match_opcode::<8>, sub_opcodes).parse(input)
 }
 fn opcode_9(input: (&[u8], usize)) -> IResult<(&[u8], usize), Instruction> {
     let data = pair(register_number, register_number);
-    let (input, (lhs, rhs)) = delimited(match_opcode::<9>, data, match_nibble::<0>)(input)?;
+    let (input, (lhs, rhs)) = delimited(match_opcode::<9>, data, match_nibble::<0>).parse(input)?;
 
     Ok((
         input,
@@ -227,11 +228,11 @@ fn opcode_9(input: (&[u8], usize)) -> IResult<(&[u8], usize), Instruction> {
     ))
 }
 fn opcode_a(input: (&[u8], usize)) -> IResult<(&[u8], usize), Instruction> {
-    let (input, immediate) = preceded(match_opcode::<0xa>, twelve_bit_value)(input)?;
+    let (input, immediate) = preceded(match_opcode::<0xa>, twelve_bit_value).parse(input)?;
     Ok((input, Instruction::LoadToIRegister { immediate }))
 }
 fn opcode_b(input: (&[u8], usize)) -> IResult<(&[u8], usize), Instruction> {
-    let (input, immediate) = preceded(match_opcode::<0xb>, twelve_bit_value)(input)?;
+    let (input, immediate) = preceded(match_opcode::<0xb>, twelve_bit_value).parse(input)?;
     Ok((
         input,
         Instruction::JumpToSumOfV0ValueAndImmediate { immediate },
@@ -239,7 +240,7 @@ fn opcode_b(input: (&[u8], usize)) -> IResult<(&[u8], usize), Instruction> {
 }
 fn opcode_c(input: (&[u8], usize)) -> IResult<(&[u8], usize), Instruction> {
     let data = pair(register_number, eight_bit_value);
-    let (input, (destination, immediate)) = preceded(match_opcode::<0xc>, data)(input)?;
+    let (input, (destination, immediate)) = preceded(match_opcode::<0xc>, data).parse(input)?;
     Ok((
         input,
         Instruction::LoadBitwiseAndOfRandomByteAndImmediate {
@@ -249,9 +250,9 @@ fn opcode_c(input: (&[u8], usize)) -> IResult<(&[u8], usize), Instruction> {
     ))
 }
 fn opcode_d(input: (&[u8], usize)) -> IResult<(&[u8], usize), Instruction> {
-    let data = tuple((register_number, register_number, four_bit_value));
+    let data = (register_number, register_number, four_bit_value);
     let (input, (read_x_axis_from, read_y_axis_from, bytes_to_read_from_i_register)) =
-        preceded(match_opcode::<0xd>, data)(input)?;
+        preceded(match_opcode::<0xd>, data).parse(input)?;
     Ok((
         input,
         Instruction::DrawSpritesFromMemory {
@@ -282,7 +283,7 @@ fn opcode_e(input: (&[u8], usize)) -> IResult<(&[u8], usize), Instruction> {
     };
 
     let sub_opcodes = alt((skip_key_pressed, skip_key_not_pressed));
-    preceded(match_opcode::<0xe>, sub_opcodes)(input)
+    preceded(match_opcode::<0xe>, sub_opcodes).parse(input)
 }
 fn opcode_f(input: (&[u8], usize)) -> IResult<(&[u8], usize), Instruction> {
     let load_delay_timer_into_register = |input| {
@@ -351,18 +352,18 @@ fn opcode_f(input: (&[u8], usize)) -> IResult<(&[u8], usize), Instruction> {
         store_to_memory,
         load_from_memory,
     ));
-    preceded(match_opcode::<0xf>, sub_opcodes)(input)
+    preceded(match_opcode::<0xf>, sub_opcodes).parse(input)
 }
 
 // Utilities
 fn register_terminated_by_byte<const VALUE: i32>(
     input: (&[u8], usize),
 ) -> IResult<(&[u8], usize), RegisterNumber> {
-    terminated(register_number, bits::complete::tag(VALUE, 8usize))(input)
+    terminated(register_number, bits::complete::tag(VALUE, 8usize)).parse(input)
 }
 
 fn match_nibble<const VALUE: i32>(input: (&[u8], usize)) -> IResult<(&[u8], usize), i32> {
-    bits::complete::tag(VALUE, 4usize)(input)
+    bits::complete::tag(VALUE, 4usize).parse(input)
 }
 
 fn match_opcode<const OPCODE: i32>(input: (&[u8], usize)) -> IResult<(&[u8], usize), i32> {
@@ -380,16 +381,16 @@ fn memory_address(input: (&[u8], usize)) -> IResult<(&[u8], usize), MemoryAddres
 }
 
 fn four_bit_value(input: (&[u8], usize)) -> IResult<(&[u8], usize), FourBitValue> {
-    let (input, raw_value) = bits::complete::take(4usize)(input)?;
+    let (input, raw_value) = bits::complete::take(4usize).parse(input)?;
     Ok((input, FourBitValue(raw_value)))
 }
 
 fn eight_bit_value(input: (&[u8], usize)) -> IResult<(&[u8], usize), EightBitValue> {
-    let (input, raw_value) = bits::complete::take(8usize)(input)?;
+    let (input, raw_value) = bits::complete::take(8usize).parse(input)?;
     Ok((input, EightBitValue(raw_value)))
 }
 
 fn twelve_bit_value(input: (&[u8], usize)) -> IResult<(&[u8], usize), TwelveBitValue> {
-    let (input, raw_value) = bits::complete::take(12usize)(input)?;
+    let (input, raw_value) = bits::complete::take(12usize).parse(input)?;
     Ok((input, TwelveBitValue(raw_value)))
 }
